@@ -17,25 +17,52 @@ app.use(session({
 
 // Google OAuth2 credentials
 const credentials = JSON.parse(fs.readFileSync('credentials.json'));
-console.log(credentials)
 YOUR_CLIENT_ID = credentials.web.client_id;
 YOUR_CLIENT_SECRET = credentials.web.client_secret;
 YOUR_REDIRECT_URL = "http://localhost:3000/auth/google/callback";
+
 
 const oauth2Client = new google.auth.OAuth2(
   YOUR_CLIENT_ID,
   YOUR_CLIENT_SECRET,
   YOUR_REDIRECT_URL
 );
+oauthClients = []
 
 const scopes = [
   'https://www.googleapis.com/auth/calendar.readonly'
 ];
 
-app.get('/', (req, res) => {
-    console.log("Yup");
-    res.send('http://localhost:3000/auth/google/')
+
+app.get('/home', async (req, res) => {
+  try {
+    // Check if tokens are available in the session
+
+    // If tokens are not available, redirect to the authentication page
+    if (oauthClients.length == 0) {
+      return res.send("No authorized users available");
+    }
+
+    // Use tokens to query Google Calendar API and fetch events
+    // const events = await listEvents(refreshTokens);
+    let eventList = [];
+    for (const creds of oauthClients) {
+      const events = await listEvents(creds);
+      eventList = eventList.concat(events); // Concatenate arrays
+    }
+
+  // Render the home page with events
+  res.send(`Events: ${JSON.stringify(eventList)}`);
+
+
+    // Render the home page with events
+    // res.send(`Events: ${JSON.stringify(merged)}`);
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    res.status(500).send('Error fetching events');
+  }
 });
+
 
 
 // Route to start OAuth2 flow
@@ -45,9 +72,8 @@ app.get('/auth/google/', (req, res) => {
   
   // Store state in the session
   req.session.state = state;
-
-  console.log("here 1");
-  // Generate a url that asks permissions for the Drive activity scope
+  
+  // Generate a url that asks permissions for the calendar readonly scope
   const authorizationUrl = oauth2Client.generateAuthUrl({
     // 'online' (default) or 'offline' (gets refresh_token)
     access_type: 'offline',
@@ -59,7 +85,6 @@ app.get('/auth/google/', (req, res) => {
     // Include the state parameter to reduce the risk of CSRF attacks.
     state: state
   });
-  console.log("here 2");
   // Redirect the user to the authorization URL
   res.redirect(authorizationUrl);
 });
@@ -68,7 +93,6 @@ app.get('/auth/google/', (req, res) => {
 app.get('/auth/google/callback', async (req, res) => {
   const { code, state } = req.query;
   const storedState = req.session.state;
-
   // Check if state matches
   if (state !== storedState) {
     return res.status(403).send('State mismatch');
@@ -80,10 +104,18 @@ app.get('/auth/google/callback', async (req, res) => {
     
     // Set access token in the OAuth2 client
     oauth2Client.setCredentials(tokens);
+    userCredential = tokens;
 
     // Now you can use the Google APIs with oauth2Client
-
     const eventPayload = await listEvents(oauth2Client);
+    
+    const authClone = new google.auth.OAuth2(
+      oauth2Client._clientId,
+      oauth2Client._clientSecret,
+      oauth2Client._redirectUri
+    );
+    authClone.setCredentials(tokens);
+    oauthClients.push(authClone);
     
     // Send the event payload back to the client
     res.json({ events: eventPayload });
@@ -110,6 +142,7 @@ async function listEvents(auth) {
     console.log('Upcoming 10 events:');
     const eventPayload = events.map(event => {
         const start = event.start.dateTime || event.start.date;
+        console.log(`${start} - ${event.summary}`)
         return `${start} - ${event.summary}`;
       });
     
