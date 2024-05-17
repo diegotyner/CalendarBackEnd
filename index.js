@@ -45,18 +45,25 @@ app.get('/home', async (req, res) => {
 
     // Use tokens to query Google Calendar API and fetch events
     // const events = await listEvents(refreshTokens);
-    let eventList = [];
+    let combinedMap = new Map();
     for (const creds of oauthClients) {
       const events = await listEvents(creds);
-      eventList = eventList.concat(events); // Concatenate arrays
+      const eventsMap = new Map();
+      events.forEach(event => {
+        const date = event.date;
+        if (!eventsMap.has(date)) {
+          eventsMap.set(date, []);
+        }
+        eventsMap.get(date).push(event);
+      });
+      eventsMap.forEach((value, key) => {
+        if (!combinedMap.has(key)) {
+          combinedMap.set(key, []);
+        }
+        combinedMap.get(key).push(...value);
+      });
     }
-
-  // Render the home page with events
-  res.send(`Events: ${JSON.stringify(eventList)}`);
-
-
-    // Render the home page with events
-    // res.send(`Events: ${JSON.stringify(merged)}`);
+    res.json([...combinedMap]);
   } catch (error) {
     console.error('Error fetching events:', error);
     res.status(500).send('Error fetching events');
@@ -107,7 +114,7 @@ app.get('/auth/google/callback', async (req, res) => {
     userCredential = tokens;
 
     // Now you can use the Google APIs with oauth2Client
-    const eventPayload = await listEvents(oauth2Client);
+    const eventsMap = await listEvents(oauth2Client);
     
     const authClone = new google.auth.OAuth2(
       oauth2Client._clientId,
@@ -116,9 +123,7 @@ app.get('/auth/google/callback', async (req, res) => {
     );
     authClone.setCredentials(tokens);
     oauthClients.push(authClone);
-    
-    // Send the event payload back to the client
-    res.json({ events: eventPayload });
+    res.json([...eventsMap]);
   } catch (error) {
     console.error('Error retrieving access token:', error);
     res.status(500).send('Error retrieving access token');
@@ -126,30 +131,146 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 async function listEvents(auth) {
-    const calendar = google.calendar({version: 'v3', auth});
-    const res = await calendar.events.list({
-      calendarId: 'primary',
-      timeMin: new Date().toISOString(),
-      maxResults: 10,
-      singleEvents: true,
-      orderBy: 'startTime',
-    });
-    const events = res.data.items;
-    if (!events || events.length === 0) {
-      console.log('No upcoming events found.');
-      return [];
+  class EventObject { 
+    constructor(id, calendar, name, date, description, start, end) {
+        this.id = id
+        this.calendar = calendar;
+        this.name = name; // Event name (summary)
+        this.date = date;
+        this.description = description; // The comments/description to event
+        this.starttime = start;
+        this.endtime = end;
     }
-    console.log('Upcoming 10 events:');
-    const eventPayload = events.map(event => {
-        const start = event.start.dateTime || event.start.date;
-        console.log(`${start} - ${event.summary}`)
-        return `${start} - ${event.summary}`;
+  }
+    const calendar = google.calendar({version: 'v3', auth});
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfWeekFromNow = new Date();
+    endOfWeekFromNow.setDate(endOfWeekFromNow.getDate() + 7);
+    endOfWeekFromNow.setHours(23, 59, 59, 999);
+
+    // Convert to ISO strings for the Google Calendar API
+    const timeMin = startOfToday.toISOString();
+    const timeMax = endOfWeekFromNow.toISOString();
+
+    try {
+      const calendarList = await calendar.calendarList.list();
+      const filteredCalendars = calendarList.data.items.filter(calendarEntry => {
+        return calendarEntry.summary.startsWith('⚡');
       });
-    
-    return eventPayload;
+      const eventPromises = filteredCalendars.map(calendarEntry => {
+          const calendarId = calendarEntry.id;
+          const calendarName = calendarEntry.summary; // Get the calendar name
+          return calendar.events.list({ 
+            calendarId: calendarId,
+            timeMin: timeMin,
+            timeMax: timeMax,
+            showDeleted: false,
+            singleEvents: true            
+          }).then(response => {
+            return response.data.items.map(event => ({
+                ...event,
+                calendarName: calendarName // Attach the calendar name to each event
+            }));
+        }).catch(error => {
+              console.error(`Error fetching events for calendar ${calendarId}:`, error);
+              return null; // Return null or an empty list to handle the error
+          });
+      });
+      eventsList = await Promise.all(eventPromises);
+      const allEvents = eventsList.flatMap(events => {
+        return events.map(event => {
+            const start = event.start.dateTime || event.start.date;
+            const end = event.end.dateTime || event.end.date;
+            return new EventObject(
+                event.id,
+                event.calendarName, // Use the calendar name here
+                event.summary,
+                start.split('T')[0],
+                event.description || '',
+                start,
+                end
+            );
+        });
+      });
+    const eventsMap = new Map();
+    allEvents.forEach(event => {
+      const date = event.date;
+      if (!eventsMap.has(date)) {
+          eventsMap.set(date, []);
+      }
+      eventsMap.get(date).push(event);
+    });
+    return eventsMap;
+    } catch (error) {
+        console.error('Error fetching calendar list:', error);
+        return [];
+    }
 }
 
 
+
+/* 
+for calendar in calendar_list['items']:
+      if calendar.get('summary', 'No summary') == "LDM: General" or calendar.get('summary', 'No summary') == "Neurotech@Davis Projects Calendar":
+          continue
+      print('------------------------------------------')
+      print('Calendar ID:', calendar['id'])
+      print('Summary:', calendar.get('summary', 'No summary'))
+      print('Description:', calendar.get('description', 'No description'))
+      print('------------------------------------------')
+
+      events_result = service.events().list(calendarId=calendar['id'], timeMin=now, timeMax=timeMax ,showDeleted=False, singleEvents=True).execute()
+      events = events_result.get("items", [])
+      
+      if not events:
+          print("No upcoming events found.")
+          continue
+
+      counter = 0
+      for event in events:
+          counter += 1
+          if event["status"] != "cancelled":
+              start = event["start"].get("dateTime", event["start"].get("date"))
+              print(start, event["summary"], counter)
+              
+              # (self, ref, calendar, name, date, description, start, end)
+              cal = calendar.get('summary')
+              name = event["summary"]
+              date = start[:10]
+              description = event.get("description", None)
+              if "date" in event["start"]: # If an All Day event
+                startTime = None
+                endTime = None
+              else: # If not all day event, has time
+                timeString = event["start"].get("dateTime")
+                startTime = int(timeString[11:13] + timeString[14:16])
+                timeString = event["end"].get("dateTime")
+                endTime = int(timeString[11:13] + timeString[14:16])
+              MyEvent = EventObject(event, cal, name, date, description, startTime, endTime)
+
+
+              if date in hashmap: # NEEDS TO BE SORTED
+                event_list = hashmap[start[:10]]
+                if startTime == None: # If no time
+                  event_list.insert(0, MyEvent)
+                  continue
+                inserted = False
+                for i in range(len(event_list)): # If does have time
+                  if event_list[i].start == None:
+                    continue
+                  if startTime < event_list[i].start:
+                    event_list.insert(i, MyEvent)
+                    inserted = True
+                    break
+                if not inserted: 
+                  event_list.append(MyEvent) 
+
+              else:
+                hashmap[date] = [MyEvent]
+                  
+*/
 
 // Start the server
 app.listen(port, () => {
