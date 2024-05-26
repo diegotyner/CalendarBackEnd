@@ -2,7 +2,7 @@ const { google } = require('googleapis');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
-const fs = require('fs');
+require('dotenv').config();
 
 // Initialize Express app
 const app = express();
@@ -10,22 +10,16 @@ const port = 3000;
 
 // Set up session middleware
 app.use(session({
-  secret: 'your_secret_here',
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: true,
 }));
 
-// Google OAuth2 credentials
-const credentials = JSON.parse(fs.readFileSync('credentials.json'));
-YOUR_CLIENT_ID = credentials.web.client_id;
-YOUR_CLIENT_SECRET = credentials.web.client_secret;
-YOUR_REDIRECT_URL = "http://localhost:3000/auth/google/callback";
-
 
 const oauth2Client = new google.auth.OAuth2(
-  YOUR_CLIENT_ID,
-  YOUR_CLIENT_SECRET,
-  YOUR_REDIRECT_URL
+  process.env.CLIENT_ID,
+  process.env.CLIENT_SECRET,
+  process.env.REDIRECT_URL
 );
 oauthClients = []
 
@@ -156,9 +150,14 @@ async function listEvents(auth) {
 
     try {
       const calendarList = await calendar.calendarList.list();
-      const filteredCalendars = calendarList.data.items.filter(calendarEntry => {
-        return calendarEntry.summary.startsWith('⚡');
-      });
+      const calendarNames = calendarList.data.items.map(calendarEntry => {
+        return calendarEntry.summary
+      })
+      console.log(calendarNames);
+
+      const filteredCalendars = calendarList.data.items
+      
+
       const eventPromises = filteredCalendars.map(calendarEntry => {
           const calendarId = calendarEntry.id;
           const calendarName = calendarEntry.summary; // Get the calendar name
