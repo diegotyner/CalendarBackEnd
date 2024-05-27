@@ -2,11 +2,25 @@ const { google } = require('googleapis');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
+const mongoose = require('mongoose');
+const oauth2 = google.oauth2('v2');
 require('dotenv').config();
 
 // Initialize Express app
 const app = express();
-const port = 3000;
+const port = 4000;
+module.exports = app;
+
+// Connect to Mongo
+const User = require('../models/schema');
+const dbURI = process.env.DB_URI
+mongoose.connect(dbURI)
+  .then( (result) => {
+    console.log('Connected to db')
+    app.listen(port, () => {console.log(`Server is running on http://localhost:${port}`)});
+  })
+  .catch( (err) => console.log(err))
+
 
 // Set up session middleware
 app.use(session({
@@ -21,110 +35,113 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.CLIENT_SECRET,
   process.env.REDIRECT_URL
 );
-oauthClients = []
 
-const scopes = [
-  'https://www.googleapis.com/auth/calendar.readonly'
-];
+const scopes = [ 'https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'];
 
+// app.get("/", (req, res) => res.send("Express on Vercel"));
+app.get("/", (req, res) => { res.send("Express on Vercel")});
 
 app.get('/home', async (req, res) => {
-  try {
-    // Check if tokens are available in the session
+  console.time('Whole Home')
+  console.log('---------Home---------')
+  const tokenList = await User.find({}, 'token').exec()
+  if (tokenList.length == 0) {
+    return res.send("No authorized users available");
+  }
 
-    // If tokens are not available, redirect to the authentication page
-    if (oauthClients.length == 0) {
-      return res.send("No authorized users available");
+  let combinedMap = new Map();
+  for (const tokenObject of tokenList) {
+    const token = tokenObject.token
+    if (!token) {
+      continue
     }
 
-    // Use tokens to query Google Calendar API and fetch events
-    // const events = await listEvents(refreshTokens);
-    let combinedMap = new Map();
-    for (const creds of oauthClients) {
-      const events = await listEvents(creds);
-      const eventsMap = new Map();
-      events.forEach(event => {
-        const date = event.date;
-        if (!eventsMap.has(date)) {
-          eventsMap.set(date, []);
-        }
-        eventsMap.get(date).push(event);
-      });
+    try {
+      const eventsMap = await listEvents(token);
+  
       eventsMap.forEach((value, key) => {
         if (!combinedMap.has(key)) {
           combinedMap.set(key, []);
         }
         combinedMap.get(key).push(...value);
       });
+    } catch (error) {
+      console.error('Error fetching events for token:', token, error);
     }
-    res.json([...combinedMap]);
-  } catch (error) {
-    console.error('Error fetching events:', error);
-    res.status(500).send('Error fetching events');
   }
+  const combinedObject = Object.fromEntries(combinedMap);
+  console.timeEnd('Whole Home')
+  res.json(combinedObject);
 });
 
 
 
 // Route to start OAuth2 flow
 app.get('/auth/google/', (req, res) => {
-  // Generate a secure random state value.
-  const state = crypto.randomBytes(32).toString('hex');
+  console.log('---------Authenticating---------')
+
+  // const state = crypto.randomBytes(32).toString('hex');
+  // req.session.state = state;
   
-  // Store state in the session
-  req.session.state = state;
-  
-  // Generate a url that asks permissions for the calendar readonly scope
   const authorizationUrl = oauth2Client.generateAuthUrl({
-    // 'online' (default) or 'offline' (gets refresh_token)
     access_type: 'offline',
-    /** Pass in the scopes array defined above.
-      * Alternatively, if only one scope is needed, you can pass a scope URL as a string */
     scope: scopes,
     // Enable incremental authorization. Recommended as a best practice.
-    include_granted_scopes: true,
+    include_granted_scopes: true
     // Include the state parameter to reduce the risk of CSRF attacks.
-    state: state
+    // state: state
   });
-  // Redirect the user to the authorization URL
   res.redirect(authorizationUrl);
 });
 
 // Route for OAuth2 callback
 app.get('/auth/google/callback', async (req, res) => {
-  const { code, state } = req.query;
-  const storedState = req.session.state;
-  // Check if state matches
-  if (state !== storedState) {
-    return res.status(403).send('State mismatch');
-  }
+  console.log('---------Callback---------')
+  console.time('Whole Callback')
+  const code = req.query;
+  // const storedState = req.session.state;
+  // if (state !== storedState) {
+  //   return res.status(403).send('State mismatch');
+  // }
 
   try {
     // Exchange authorization code for access token
     const { tokens } = await oauth2Client.getToken(code);
-    
-    // Set access token in the OAuth2 client
     oauth2Client.setCredentials(tokens);
-    userCredential = tokens;
 
-    // Now you can use the Google APIs with oauth2Client
-    const eventsMap = await listEvents(oauth2Client);
-    
-    const authClone = new google.auth.OAuth2(
-      oauth2Client._clientId,
-      oauth2Client._clientSecret,
-      oauth2Client._redirectUri
-    );
-    authClone.setCredentials(tokens);
-    oauthClients.push(authClone);
-    res.json([...eventsMap]);
+    // Bookkeeping DB with new user
+    try {
+      const profile = await oauth2.userinfo.get({ auth: oauth2Client }).then(response => response.data);
+      let userInDB = await User.findOne({email: profile.email}).exec()
+      if (!userInDB) {
+        const user = new User({
+          name: profile.name,
+          email: profile.email,
+          token: tokens
+        });
+        await user.save()
+        console.log('User saved to DB: ', user.email)
+      } else {
+        userInDB.token = tokens;
+        await userInDB.save();
+        console.log('User updated in DB: ', userInDB.email)
+      }
+    } catch (error) {
+      console.error('Error handling user:', error);
+    };
+
+    const eventsMap = await listEvents(tokens);
+    const eventObject = Object.fromEntries(eventsMap);
+    console.timeEnd('Whole Callback')
+    res.json(eventObject);
   } catch (error) {
     console.error('Error retrieving access token:', error);
     res.status(500).send('Error retrieving access token');
   }
 });
 
-async function listEvents(auth) {
+async function listEvents(auth_token) {
+  console.time('List Events')
   class EventObject { 
     constructor(id, calendar, name, date, description, start, end) {
         this.id = id
@@ -136,63 +153,66 @@ async function listEvents(auth) {
         this.endtime = end;
     }
   }
-    const calendar = google.calendar({version: 'v3', auth});
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfWeekFromNow = new Date();
-    endOfWeekFromNow.setDate(endOfWeekFromNow.getDate() + 7);
-    endOfWeekFromNow.setHours(23, 59, 59, 999);
+  oauth2Client.setCredentials(auth_token)
+  const calendar = google.calendar({version: 'v3', auth: oauth2Client});
 
-    // Convert to ISO strings for the Google Calendar API
-    const timeMin = startOfToday.toISOString();
-    const timeMax = endOfWeekFromNow.toISOString();
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfWeekFromNow = new Date();
+  endOfWeekFromNow.setDate(endOfWeekFromNow.getDate() + 7);
+  endOfWeekFromNow.setHours(23, 59, 59, 999);
 
-    try {
-      const calendarList = await calendar.calendarList.list();
-      const calendarNames = calendarList.data.items.map(calendarEntry => {
-        return calendarEntry.summary
-      })
-      console.log(calendarNames);
+  // Convert to ISO strings for the Google Calendar API
+  const timeMin = startOfToday.toISOString();
+  const timeMax = endOfWeekFromNow.toISOString();
+  try {
+    console.time('Calendar List')
+    const calendarList = (await calendar.calendarList.list()).data.items;
+    console.timeEnd('Calendar List')
 
-      const filteredCalendars = calendarList.data.items
-      
-
-      const eventPromises = filteredCalendars.map(calendarEntry => {
-          const calendarId = calendarEntry.id;
-          const calendarName = calendarEntry.summary; // Get the calendar name
-          return calendar.events.list({ 
-            calendarId: calendarId,
-            timeMin: timeMin,
-            timeMax: timeMax,
-            showDeleted: false,
-            singleEvents: true            
-          }).then(response => {
-            return response.data.items.map(event => ({
-                ...event,
-                calendarName: calendarName // Attach the calendar name to each event
-            }));
-        }).catch(error => {
-              console.error(`Error fetching events for calendar ${calendarId}:`, error);
-              return null; // Return null or an empty list to handle the error
-          });
-      });
-      eventsList = await Promise.all(eventPromises);
-      const allEvents = eventsList.flatMap(events => {
-        return events.map(event => {
-            const start = event.start.dateTime || event.start.date;
-            const end = event.end.dateTime || event.end.date;
-            return new EventObject(
-                event.id,
-                event.calendarName, // Use the calendar name here
-                event.summary,
-                start.split('T')[0],
-                event.description || '',
-                start,
-                end
-            );
+    // const calendarNames = calendarList.map(calendarEntry => {
+    //   return calendarEntry.summary
+    // })    
+    // console.log(calendarNames);
+    
+    const eventPromises = calendarList.map(calendarEntry => {
+        const calendarId = calendarEntry.id;
+        const calendarName = calendarEntry.summary; // Get the calendar name
+        return calendar.events.list({ 
+          calendarId: calendarId,
+          timeMin: timeMin,
+          timeMax: timeMax,
+          showDeleted: false,
+          singleEvents: true            
+        }).then(response => {
+          return response.data.items.map(event => ({
+              ...event,
+              calendarName: calendarName // Attach the calendar name to each event
+          }));
+      }).catch(error => {
+            console.error(`Error fetching events for calendar ${calendarId}:`, error);
+            return null; // Return null or an empty list to handle the error
         });
+    });
+    console.time('Event Promises')
+    const eventsList = await Promise.all(eventPromises);
+    console.timeEnd('Event Promises')
+    const allEvents = eventsList.flatMap(events => {
+      return events.map(event => {
+          const start = event.start.dateTime || event.start.date;
+          const end = event.end.dateTime || event.end.date;
+          return new EventObject(
+              event.id,
+              event.calendarName, // Use the calendar name here
+              event.summary,
+              start.split('T')[0],
+              event.description || '',
+              start,
+              end
+          );
       });
+    });
     const eventsMap = new Map();
     allEvents.forEach(event => {
       const date = event.date;
@@ -201,77 +221,13 @@ async function listEvents(auth) {
       }
       eventsMap.get(date).push(event);
     });
+    console.timeEnd('List Events')
     return eventsMap;
-    } catch (error) {
-        console.error('Error fetching calendar list:', error);
-        return [];
-    }
+  } catch (error) {
+      console.error('Error fetching calendar list:', error);
+      return [];
+  }
 }
 
 
 
-/* 
-for calendar in calendar_list['items']:
-      if calendar.get('summary', 'No summary') == "LDM: General" or calendar.get('summary', 'No summary') == "Neurotech@Davis Projects Calendar":
-          continue
-      print('------------------------------------------')
-      print('Calendar ID:', calendar['id'])
-      print('Summary:', calendar.get('summary', 'No summary'))
-      print('Description:', calendar.get('description', 'No description'))
-      print('------------------------------------------')
-
-      events_result = service.events().list(calendarId=calendar['id'], timeMin=now, timeMax=timeMax ,showDeleted=False, singleEvents=True).execute()
-      events = events_result.get("items", [])
-      
-      if not events:
-          print("No upcoming events found.")
-          continue
-
-      counter = 0
-      for event in events:
-          counter += 1
-          if event["status"] != "cancelled":
-              start = event["start"].get("dateTime", event["start"].get("date"))
-              print(start, event["summary"], counter)
-              
-              # (self, ref, calendar, name, date, description, start, end)
-              cal = calendar.get('summary')
-              name = event["summary"]
-              date = start[:10]
-              description = event.get("description", None)
-              if "date" in event["start"]: # If an All Day event
-                startTime = None
-                endTime = None
-              else: # If not all day event, has time
-                timeString = event["start"].get("dateTime")
-                startTime = int(timeString[11:13] + timeString[14:16])
-                timeString = event["end"].get("dateTime")
-                endTime = int(timeString[11:13] + timeString[14:16])
-              MyEvent = EventObject(event, cal, name, date, description, startTime, endTime)
-
-
-              if date in hashmap: # NEEDS TO BE SORTED
-                event_list = hashmap[start[:10]]
-                if startTime == None: # If no time
-                  event_list.insert(0, MyEvent)
-                  continue
-                inserted = False
-                for i in range(len(event_list)): # If does have time
-                  if event_list[i].start == None:
-                    continue
-                  if startTime < event_list[i].start:
-                    event_list.insert(i, MyEvent)
-                    inserted = True
-                    break
-                if not inserted: 
-                  event_list.append(MyEvent) 
-
-              else:
-                hashmap[date] = [MyEvent]
-                  
-*/
-
-// Start the server
-app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-  });
