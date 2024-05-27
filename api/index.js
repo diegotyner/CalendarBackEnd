@@ -8,7 +8,7 @@ require('dotenv').config();
 
 // Initialize Express app
 const app = express();
-const port = 4000;
+const port = 3000;
 module.exports = app;
 
 // Connect to Mongo
@@ -44,20 +44,20 @@ app.get("/", (req, res) => { res.send("Express on Vercel")});
 app.get('/home', async (req, res) => {
   console.time('Whole Home')
   console.log('---------Home---------')
-  const tokenList = await User.find({}, 'token').exec()
+  const tokenList = await User.find().exec()
   if (tokenList.length == 0) {
     return res.send("No authorized users available");
   }
 
   let combinedMap = new Map();
-  for (const tokenObject of tokenList) {
-    const token = tokenObject.token
+  for (const userObject of tokenList) {
+    const token = userObject.token
     if (!token) {
       continue
     }
 
     try {
-      const eventsMap = await listEvents(token);
+      const eventsMap = await listEvents(token, userObject.email);
   
       eventsMap.forEach((value, key) => {
         if (!combinedMap.has(key)) {
@@ -110,8 +110,9 @@ app.get('/auth/google/callback', async (req, res) => {
     oauth2Client.setCredentials(tokens);
 
     // Bookkeeping DB with new user
+    let profile;
     try {
-      const profile = await oauth2.userinfo.get({ auth: oauth2Client }).then(response => response.data);
+      profile = await oauth2.userinfo.get({ auth: oauth2Client }).then(response => response.data);
       let userInDB = await User.findOne({email: profile.email}).exec()
       if (!userInDB) {
         const user = new User({
@@ -130,7 +131,7 @@ app.get('/auth/google/callback', async (req, res) => {
       console.error('Error handling user:', error);
     };
 
-    const eventsMap = await listEvents(tokens);
+    const eventsMap = await listEvents(tokens, profile.email);
     const eventObject = Object.fromEntries(eventsMap);
     console.timeEnd('Whole Callback')
     res.json(eventObject);
@@ -140,11 +141,12 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-async function listEvents(auth_token) {
+async function listEvents(auth_token, user_email) {
   console.time('List Events')
   class EventObject { 
-    constructor(id, calendar, name, date, description, start, end) {
-        this.id = id
+    constructor(id, user, calendar, name, date, description, start, end) {
+        this.id = id;
+        this.user = user;
         this.calendar = calendar;
         this.name = name; // Event name (summary)
         this.date = date;
@@ -204,6 +206,7 @@ async function listEvents(auth_token) {
           const end = event.end.dateTime || event.end.date;
           return new EventObject(
               event.id,
+              user_email,
               event.calendarName, // Use the calendar name here
               event.summary,
               start.split('T')[0],
