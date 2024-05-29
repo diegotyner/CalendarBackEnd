@@ -215,13 +215,35 @@ async function listEvents(auth_token, user_email) {
 
           // In stupid UTC time and needs to process
           if (start.length > 18 && start[19] == 'Z') {
-            let hours = Number(start.slice(11, 13)) - 7;
-            start = start.slice(0, 11) + hours.toString() + start.slice(13, 19) + "-07:00"
+            const start_date_object = new Date(start);
+            const start_pacific_timeString = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Los_Angeles',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            }).format(start_date_object);
+            const start_splitStr = start_pacific_timeString.split(/[/,\s]/); // [month, day, year, time]
+            const start_timeSplt = start_splitStr[4].split(':'); // [hours, minutes, seconds]
+            start = `${start_splitStr[2]}-${start_splitStr[0]}-${start_splitStr[1]}T${start_timeSplt[0]}:${start_timeSplt[1]}:${start_timeSplt[2]}-07:00`;
             
-            hours = Number(end.slice(11, 13)) - 7;
-            end = end.slice(0, 11) + hours.toString() + end.slice(13, 19) + "-07:00"
-
-
+            const end_date_object = new Date(end);
+            const end_pacific_timeString = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Los_Angeles',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            }).format(end_date_object);
+            const end_splitStr = end_pacific_timeString.split(/[/,\s]/); // [month, day, year, time]
+            const end_timeSplt = end_splitStr[4].split(':'); // [hours, minutes, seconds]
+            end = `${end_splitStr[2]}-${end_splitStr[0]}-${end_splitStr[1]}T${end_timeSplt[0]}:${end_timeSplt[1]}:${end_timeSplt[2]}-07:00`;
           }
 
           return new EventObject(
