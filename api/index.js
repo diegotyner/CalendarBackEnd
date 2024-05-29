@@ -23,7 +23,12 @@ mongoose.connect(dbURI)
   .catch( (err) => console.log(err))
 
 
-app.use(cors()); // Allow fetching
+app.use(cors({
+      origin: [process.env.ALLOWED_ORIGIN],
+      methods: ["GET"],
+      credentials: true
+  }
+));
 
 // Set up session middleware
 app.use(session({
