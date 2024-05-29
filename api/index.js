@@ -24,15 +24,10 @@ mongoose.connect(dbURI)
 
 
 app.use(cors({
-      origin: [process.env.ALLOWED_ORIGIN1],
-      methods: ["GET"],
-      credentials: true
-  }, {
-    origin: [process.env.ALLOWED_ORIGIN2],
-    methods: ["GET"],
-    credentials: true
-}
-));
+  origin: [process.env.ALLOWED_ORIGIN1, process.env.ALLOWED_ORIGIN2], // Combine allowed origins into a single array
+  methods: ["GET"],
+  credentials: true
+}));
 
 // Set up session middleware
 app.use(session({
