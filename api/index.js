@@ -210,8 +210,8 @@ async function listEvents(auth_token, user_email) {
     console.timeEnd('Event Promises')
     const allEvents = eventsList.flatMap(events => {
       return events.map(event => {
-          const start = event.start.dateTime || event.start.date;
-          const end = event.end.dateTime || event.end.date;
+          let start = event.start.dateTime || event.start.date;
+          let end = event.end.dateTime || event.end.date;
 
           // In stupid UTC time and needs to process
           if (start.length > 18 && start[19] == 'Z') {
