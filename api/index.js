@@ -4,6 +4,7 @@ const express = require('express');
 const session = require('express-session');
 const mongoose = require('mongoose');
 const oauth2 = google.oauth2('v2');
+const cors = require('cors');
 require('dotenv').config();
 
 // Initialize Express app
@@ -21,6 +22,8 @@ mongoose.connect(dbURI)
   })
   .catch( (err) => console.log(err))
 
+
+app.use(cors()); // Allow fetching
 
 // Set up session middleware
 app.use(session({
