@@ -212,6 +212,13 @@ async function listEvents(auth_token, user_email) {
       return events.map(event => {
           const start = event.start.dateTime || event.start.date;
           const end = event.end.dateTime || event.end.date;
+
+          // In stupid UTC time and needs to process
+          if (start.length > 18 && start[19] == 'Z') {
+            let hours = Number(start.slice(11, 13)) - 7;
+            start = start.slice(0, 11) + hours.toString() + start.slice(13, 19) + "-07:00"
+          }
+
           return new EventObject(
               event.id,
               user_email,
