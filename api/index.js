@@ -217,6 +217,11 @@ async function listEvents(auth_token, user_email) {
           if (start.length > 18 && start[19] == 'Z') {
             let hours = Number(start.slice(11, 13)) - 7;
             start = start.slice(0, 11) + hours.toString() + start.slice(13, 19) + "-07:00"
+            
+            hours = Number(end.slice(11, 13)) - 7;
+            end = end.slice(0, 11) + hours.toString() + end.slice(13, 19) + "-07:00"
+
+
           }
 
           return new EventObject(
