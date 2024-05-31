@@ -30,10 +30,20 @@ const userSchema = new Schema({
         required: true,
         unique: true
     },
-    token: {
-        type: JSON,
-        required: true
-    },
-})
+    tokens: {
+        access_token: {
+            type: String,
+            required: true
+        },
+        refresh_token: {
+            type: String,
+            required: false // Optional since refresh token might not be immediately available
+        },
+        expiry_date: {
+            type: Date,
+            required: true // Date when the access token expires
+        }
+    }
+});
 const User = mongoose.model('User', userSchema)
 module.exports = User;

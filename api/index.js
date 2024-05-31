@@ -51,20 +51,20 @@ app.get("/", (req, res) => { res.send("Express on Vercel")});
 app.get('/home', async (req, res) => {
   console.time('Whole Home')
   console.log('---------Home---------')
-  const tokenList = await User.find().exec()
-  if (tokenList.length == 0) {
+  const userList = await User.find().exec()
+  if (userList.length == 0) {
     return res.send("No authorized users available");
   }
 
   let combinedMap = new Map();
-  for (const userObject of tokenList) {
-    const token = userObject.token
-    if (!token) {
+  for (const userObject of userList) {
+    const tokens = userObject.tokens
+    if (!tokens) {
       continue
     }
 
     try {
-      const eventsMap = await listEvents(token, userObject.email);
+      const eventsMap = await listEvents(tokens, userObject.email);
   
       eventsMap.forEach((value, key) => {
         if (!combinedMap.has(key)) {
@@ -73,7 +73,7 @@ app.get('/home', async (req, res) => {
         combinedMap.get(key).push(...value);
       });
     } catch (error) {
-      console.error('Error fetching events for token:', token, error);
+      console.error('Error fetching events for token:', tokens, error);
     }
   }
   const combinedObject = Object.fromEntries(combinedMap);
@@ -92,8 +92,8 @@ app.get('/auth/google/', (req, res) => {
   
   const authorizationUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
+    prompt: 'consent',
     scope: scopes,
-    // Enable incremental authorization. Recommended as a best practice.
     include_granted_scopes: true
     // Include the state parameter to reduce the risk of CSRF attacks.
     // state: state
@@ -114,7 +114,10 @@ app.get('/auth/google/callback', async (req, res) => {
   try {
     // Exchange authorization code for access token
     const { tokens } = await oauth2Client.getToken(code);
+    const accessToken = tokens.access_token;
+    const refreshToken = tokens.refresh_token; // Extract refresh token
     oauth2Client.setCredentials(tokens);
+    console.log(tokens)
 
     // Bookkeeping DB with new user
     let profile;
@@ -125,12 +128,19 @@ app.get('/auth/google/callback', async (req, res) => {
         const user = new User({
           name: profile.name,
           email: profile.email,
-          token: tokens
+          tokens: tokens,
         });
+        // if (refreshToken) {
+        //   user.tokens.refresh_token = refreshToken; // Save refresh token to the database if it exists
+        // }
         await user.save()
         console.log('User saved to DB: ', user.email)
       } else {
-        userInDB.token = tokens;
+        const oldTokens = userInDB.tokens;
+        userInDB.tokens = tokens;
+        if (!refreshToken) {
+          userInDB.tokens.refresh_token = oldTokens.refresh_token; ; // Update refresh token in the database if it exists
+        }
         await userInDB.save();
         console.log('User updated in DB: ', userInDB.email)
       }
@@ -141,14 +151,14 @@ app.get('/auth/google/callback', async (req, res) => {
     const eventsMap = await listEvents(tokens, profile.email);
     const eventObject = Object.fromEntries(eventsMap);
     console.timeEnd('Whole Callback')
-    res.json(eventObject);
+    res.redirect(process.env.ALLOWED_ORIGIN2);
   } catch (error) {
     console.error('Error retrieving access token:', error);
     res.status(500).send('Error retrieving access token');
   }
 });
 
-async function listEvents(auth_token, user_email) {
+async function listEvents(auth_tokens, user_email) {
   console.time('List Events')
   class EventObject { 
     constructor(id, user, calendar, name, date, description, start, end) {
@@ -163,7 +173,7 @@ async function listEvents(auth_token, user_email) {
     }
   }
 
-  oauth2Client.setCredentials(auth_token)
+  oauth2Client.setCredentials(auth_tokens)
   const calendar = google.calendar({version: 'v3', auth: oauth2Client});
 
   const startOfToday = new Date();
