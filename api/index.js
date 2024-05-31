@@ -61,6 +61,7 @@ app.get('/home', async (req, res) => {
   let combinedMap = new Map();
   for (const userObject of userList) {
     const tokens = userObject.refresh_token 
+    console.log(tokens)
     if (!tokens) {
       continue
     }
@@ -168,6 +169,7 @@ async function listEvents(auth_tokens, user_email) {
 
   console.time('List Events')
   oauth2Client.setCredentials({ refresh_token: auth_tokens });
+  console.log(auth_tokens)
   const calendar = google.calendar({version: 'v3', auth: oauth2Client});
 
   const startOfToday = new Date();
