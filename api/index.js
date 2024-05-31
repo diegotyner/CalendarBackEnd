@@ -1,5 +1,5 @@
 const { google } = require('googleapis');
-const crypto = require('crypto');
+// const crypto = require('crypto'); // Used for secure states, incompatible with Vercel
 const express = require('express');
 const session = require('express-session');
 const mongoose = require('mongoose');
@@ -43,10 +43,12 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.REDIRECT_URL
 );
 
+
 const scopes = [ 'https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'];
 
-// app.get("/", (req, res) => res.send("Express on Vercel"));
+
 app.get("/", (req, res) => { res.send("Express on Vercel")});
+
 
 app.get('/home', async (req, res) => {
   console.time('Whole Home')
@@ -58,14 +60,13 @@ app.get('/home', async (req, res) => {
 
   let combinedMap = new Map();
   for (const userObject of userList) {
-    const tokens = userObject.tokens
+    const tokens = userObject.refresh_token 
     if (!tokens) {
       continue
     }
 
     try {
       const eventsMap = await listEvents(tokens, userObject.email);
-  
       eventsMap.forEach((value, key) => {
         if (!combinedMap.has(key)) {
           combinedMap.set(key, []);
@@ -80,7 +81,6 @@ app.get('/home', async (req, res) => {
   console.timeEnd('Whole Home')
   res.json(combinedObject);
 });
-
 
 
 // Route to start OAuth2 flow
@@ -101,11 +101,13 @@ app.get('/auth/google/', (req, res) => {
   res.redirect(authorizationUrl);
 });
 
+
 // Route for OAuth2 callback
 app.get('/auth/google/callback', async (req, res) => {
   console.log('---------Callback---------')
   console.time('Whole Callback')
   const code = req.query;
+
   // const storedState = req.session.state;
   // if (state !== storedState) {
   //   return res.status(403).send('State mismatch');
@@ -114,8 +116,6 @@ app.get('/auth/google/callback', async (req, res) => {
   try {
     // Exchange authorization code for access token
     const { tokens } = await oauth2Client.getToken(code);
-    const accessToken = tokens.access_token;
-    const refreshToken = tokens.refresh_token; // Extract refresh token
     oauth2Client.setCredentials(tokens);
     console.log(tokens)
 
@@ -128,28 +128,22 @@ app.get('/auth/google/callback', async (req, res) => {
         const user = new User({
           name: profile.name,
           email: profile.email,
-          tokens: tokens,
+          refresh_token: tokens.refresh_token
         });
-        // if (refreshToken) {
-        //   user.tokens.refresh_token = refreshToken; // Save refresh token to the database if it exists
-        // }
         await user.save()
         console.log('User saved to DB: ', user.email)
       } else {
-        const oldTokens = userInDB.tokens;
-        userInDB.tokens = tokens;
-        if (!refreshToken) {
-          userInDB.tokens.refresh_token = oldTokens.refresh_token; ; // Update refresh token in the database if it exists
-        }
+        const oldTokens = userInDB.refresh_token;
+        userInDB.tokens.refresh_token = tokens.refresh_token || oldTokens.refresh_token;
         await userInDB.save();
-        console.log('User updated in DB: ', userInDB.email)
+        console.log('User already in DB, attempted to refresh: ', userInDB.email)
       }
     } catch (error) {
       console.error('Error handling user:', error);
     };
+    // const eventsMap = await listEvents(tokens, profile.email);
+    // const eventObject = Object.fromEntries(eventsMap);
 
-    const eventsMap = await listEvents(tokens, profile.email);
-    const eventObject = Object.fromEntries(eventsMap);
     console.timeEnd('Whole Callback')
     res.redirect(process.env.ALLOWED_ORIGIN2);
   } catch (error) {
@@ -159,7 +153,6 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 async function listEvents(auth_tokens, user_email) {
-  console.time('List Events')
   class EventObject { 
     constructor(id, user, calendar, name, date, description, start, end) {
         this.id = id;
@@ -173,7 +166,8 @@ async function listEvents(auth_tokens, user_email) {
     }
   }
 
-  oauth2Client.setCredentials(auth_tokens)
+  console.time('List Events')
+  oauth2Client.setCredentials({ refresh_token: auth_tokens });
   const calendar = google.calendar({version: 'v3', auth: oauth2Client});
 
   const startOfToday = new Date();
@@ -189,11 +183,6 @@ async function listEvents(auth_tokens, user_email) {
     console.time('Calendar List')
     const calendarList = (await calendar.calendarList.list()).data.items;
     console.timeEnd('Calendar List')
-
-    // const calendarNames = calendarList.map(calendarEntry => {
-    //   return calendarEntry.summary
-    // })    
-    // console.log(calendarNames);
     
     const eventPromises = calendarList.map(calendarEntry => {
         const calendarId = calendarEntry.id;
@@ -217,6 +206,7 @@ async function listEvents(auth_tokens, user_email) {
     console.time('Event Promises')
     const eventsList = await Promise.all(eventPromises);
     console.timeEnd('Event Promises')
+
     const allEvents = eventsList.flatMap(events => {
       return events.map(event => {
           let start = event.start.dateTime || event.start.date;
@@ -258,7 +248,7 @@ async function listEvents(auth_tokens, user_email) {
           return new EventObject(
               event.id,
               user_email,
-              event.calendarName, // Use the calendar name here
+              event.calendarName, 
               event.summary,
               start.split('T')[0],
               event.description || '',

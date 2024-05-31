@@ -30,19 +30,9 @@ const userSchema = new Schema({
         required: true,
         unique: true
     },
-    tokens: {
-        access_token: {
-            type: String,
-            required: true
-        },
-        refresh_token: {
-            type: String,
-            required: false // Optional since refresh token might not be immediately available
-        },
-        expiry_date: {
-            type: Date,
-            required: true // Date when the access token expires
-        }
+    refresh_token: {
+        type: String,
+        required: false // Optional since refresh token might not be immediately available
     }
 });
 const User = mongoose.model('User', userSchema)
