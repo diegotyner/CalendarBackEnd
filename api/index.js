@@ -9,7 +9,7 @@ require('dotenv').config();
 
 // Initialize Express app
 const app = express();
-const port = 4000;
+const port = 3000;
 module.exports = app;
 
 // Connect to Mongo
@@ -181,6 +181,7 @@ async function listEvents(auth_tokens, user_email) {
   // Convert to ISO strings for the Google Calendar API
   const timeMin = startOfToday.toISOString();
   const timeMax = endOfWeekFromNow.toISOString();
+  console.log(timeMin, timeMax)
   try {
     console.time('Calendar List')
     const calendarList = (await calendar.calendarList.list()).data.items;
