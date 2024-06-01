@@ -53,7 +53,10 @@ app.get("/", (req, res) => { res.send("Express on Vercel")});
 app.get('/home', async (req, res) => {
   console.time('Whole Home')
   console.log('---------Home---------')
+  console.time('userList')
   const userList = await User.find().exec()
+  console.timeEnd('userList')
+
   if (userList.length == 0) {
     return res.send("No authorized users available");
   }
@@ -131,7 +134,14 @@ app.get('/auth/google/callback', async (req, res) => {
           email: profile.email,
           refresh_token: tokens.refresh_token
         });
-        await user.save()
+
+        const calendar = google.calendar({version: 'v3', auth: oauth2Client});
+        console.time('Calendar List')
+        const calendarList = (await calendar.calendarList.list()).data.items;
+        console.timeEnd('Calendar List')
+
+        user.calendarList = calendarList;
+        await user.save();
         console.log('User saved to DB: ', user.email)
       } else {
         const oldTokens = userInDB.refresh_token;
@@ -186,9 +196,6 @@ function endOfWeekInPacificTime(date) {
 
 async function listEvents(auth_tokens, user_email) {
   console.time('List Events')
-  oauth2Client.setCredentials({ refresh_token: auth_tokens });
-  console.log(auth_tokens)
-  const calendar = google.calendar({version: 'v3', auth: oauth2Client});
 
   const startOfToday = startOfDayInPacificTime(new Date());
   const endOfWeekFromNow = endOfWeekInPacificTime(new Date());
@@ -198,11 +205,15 @@ async function listEvents(auth_tokens, user_email) {
   const timeMax = endOfWeekFromNow.toISOString();
   console.log(timeMin, timeMax)
   try {
-    console.time('Calendar List')
-    const calendarList = (await calendar.calendarList.list()).data.items;
-    console.timeEnd('Calendar List')
+    oauth2Client.setCredentials({refresh_token: auth_tokens});
+    const calendar = google.calendar({version: 'v3', auth: oauth2Client});
+
+    let userInDB = await User.findOne({email: user_email}).exec()
+
+    const calendarList = userInDB.calendarList
+    const filteredCalendarList = calendarList.filter(calendarEntry => calendarEntry.accessRole === 'owner')
     
-    const eventPromises = calendarList.map(calendarEntry => {
+    const eventPromises = filteredCalendarList.map(calendarEntry => {
         const calendarId = calendarEntry.id;
         const calendarName = calendarEntry.summary; // Get the calendar name
         return calendar.events.list({ 
