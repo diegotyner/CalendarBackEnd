@@ -24,7 +24,7 @@ mongoose.connect(dbURI)
 
 
 app.use(cors({
-  origin: [process.env.ALLOWED_ORIGIN1, process.env.ALLOWED_ORIGIN2], // Combine allowed origins into a single array
+  origin: [process.env.ALLOWED_ORIGIN1, process.env.ALLOWED_ORIGIN2, process.env.ALLOWED_ORIGIN3], // Combine allowed origins into a single array
   methods: ["GET"],
   credentials: true
 }));
