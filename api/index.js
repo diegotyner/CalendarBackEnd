@@ -1,7 +1,7 @@
 const { google } = require('googleapis');
 // const crypto = require('crypto'); // Used for secure states, incompatible with Vercel
 const express = require('express');
-const session = require('express-session');
+const session = require('cookie-session');
 const mongoose = require('mongoose');
 const oauth2 = google.oauth2('v2');
 const cors = require('cors');
@@ -9,7 +9,7 @@ require('dotenv').config();
 
 // Initialize Express app
 const app = express();
-const port = 3000;
+const port = 4000;
 module.exports = app;
 
 // Connect to Mongo
@@ -135,7 +135,7 @@ app.get('/auth/google/callback', async (req, res) => {
         console.log('User saved to DB: ', user.email)
       } else {
         const oldTokens = userInDB.refresh_token;
-        userInDB.tokens.refresh_token = tokens.refresh_token || oldTokens.refresh_token;
+        userInDB.refresh_token = tokens.refresh_token || oldTokens.refresh_token;
         await userInDB.save();
         console.log('User already in DB, attempted to refresh: ', userInDB.email)
       }
