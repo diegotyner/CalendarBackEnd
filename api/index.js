@@ -211,9 +211,9 @@ async function listEvents(auth_tokens, user_email) {
     let userInDB = await User.findOne({email: user_email}).exec()
 
     const calendarList = userInDB.calendarList
-    const filteredCalendarList = calendarList.filter(calendarEntry => calendarEntry.accessRole === 'owner')
+    // const filteredCalendarList = calendarList.filter(calendarEntry => calendarEntry.accessRole === 'owner')
     
-    const eventPromises = filteredCalendarList.map(calendarEntry => {
+    const eventPromises = calendarList.map(calendarEntry => {
         const calendarId = calendarEntry.id;
         const calendarName = calendarEntry.summary; // Get the calendar name
         return calendar.events.list({ 
