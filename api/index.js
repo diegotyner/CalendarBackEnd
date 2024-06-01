@@ -153,30 +153,45 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-async function listEvents(auth_tokens, user_email) {
-  class EventObject { 
-    constructor(id, user, calendar, name, date, description, start, end) {
-        this.id = id;
-        this.user = user;
-        this.calendar = calendar;
-        this.name = name; // Event name (summary)
-        this.date = date;
-        this.description = description; // The comments/description to event
-        this.starttime = start;
-        this.endtime = end;
-    }
-  }
 
+// ------- Declarations ------- //
+class EventObject { 
+  constructor(id, user, calendar, name, date, description, start, end) {
+      this.id = id;
+      this.user = user;
+      this.calendar = calendar;
+      this.name = name; // Event name (summary)
+      this.date = date;
+      this.description = description; // The comments/description to event
+      this.starttime = start;
+      this.endtime = end;
+  }
+}
+function toPacificTime(date) {
+  return new Date(
+    date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+  );
+}
+function startOfDayInPacificTime(date) {
+  const pacificDate = toPacificTime(date);
+  pacificDate.setHours(0, 0, 0, 0);
+  return pacificDate;
+}
+function endOfWeekInPacificTime(date) {
+  const pacificDate = toPacificTime(date);
+  pacificDate.setDate(pacificDate.getDate() + 7);
+  pacificDate.setHours(23, 59, 59, 999);
+  return pacificDate;
+}   // ------- Declarations ------- //
+
+async function listEvents(auth_tokens, user_email) {
   console.time('List Events')
   oauth2Client.setCredentials({ refresh_token: auth_tokens });
   console.log(auth_tokens)
   const calendar = google.calendar({version: 'v3', auth: oauth2Client});
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const endOfWeekFromNow = new Date();
-  endOfWeekFromNow.setDate(endOfWeekFromNow.getDate() + 7);
-  endOfWeekFromNow.setHours(23, 59, 59, 999);
+  const startOfToday = startOfDayInPacificTime(new Date());
+  const endOfWeekFromNow = endOfWeekInPacificTime(new Date());
 
   // Convert to ISO strings for the Google Calendar API
   const timeMin = startOfToday.toISOString();
@@ -274,6 +289,8 @@ async function listEvents(auth_tokens, user_email) {
       console.error('Error fetching calendar list:', error);
       return [];
   }
+
+
 }
 
 
