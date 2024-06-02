@@ -50,6 +50,12 @@ const scopes = [ 'https://www.googleapis.com/auth/calendar.readonly', 'https://w
 app.get("/", (req, res) => { res.send("Express on Vercel")});
 
 
+class userCalendar {
+  constructor(username, calendarList) {
+    this.username = username;
+    this.calendarList = calendarList;
+  }
+}
 app.get('/home', async (req, res) => {
   console.time('Whole Home')
   console.log('---------Home---------')
@@ -62,6 +68,7 @@ app.get('/home', async (req, res) => {
   }
 
   let combinedMap = new Map();
+  const userCalendarList = []
   for (const userObject of userList) {
     const tokens = userObject.refresh_token 
     console.log(tokens)
@@ -70,21 +77,25 @@ app.get('/home', async (req, res) => {
     }
 
     try {
-      const eventsMap = await listEvents(tokens, userObject.email);
+      const eventsMap = await listEvents(tokens, userObject.email, userObject.name, userObject.calendarList);
       eventsMap.forEach((value, key) => {
         if (!combinedMap.has(key)) {
           combinedMap.set(key, []);
         }
         combinedMap.get(key).push(...value);
       });
+      userCalendarList.push(new userCalendar(userObject.name, userObject.calendarList))
     } catch (error) {
       console.error('Error fetching events for token:', tokens, error);
     }
   }
   const combinedObject = Object.fromEntries(combinedMap);
   console.timeEnd('Whole Home')
-  res.json(combinedObject);
+  const payload = [combinedObject, userCalendarList]
+  res.json(payload);
 });
+
+
 
 
 // Route to start OAuth2 flow
@@ -166,10 +177,12 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // ------- Declarations ------- //
 class EventObject { 
-  constructor(id, user, calendar, name, date, description, start, end) {
+  constructor(id, user, username, calendar, calendarID, name, date, description, start, end) {
       this.id = id;
       this.user = user;
+      this.username = username;
       this.calendar = calendar;
+      this.calendarID = calendarID;
       this.name = name; // Event name (summary)
       this.date = date;
       this.description = description; // The comments/description to event
@@ -194,7 +207,7 @@ function endOfWeekInPacificTime(date) {
   return pacificDate;
 }   // ------- Declarations ------- //
 
-async function listEvents(auth_tokens, user_email) {
+async function listEvents(auth_tokens, user_email, username, calendarList) {
   console.time('List Events')
 
   const startOfToday = startOfDayInPacificTime(new Date());
@@ -208,9 +221,7 @@ async function listEvents(auth_tokens, user_email) {
     oauth2Client.setCredentials({refresh_token: auth_tokens});
     const calendar = google.calendar({version: 'v3', auth: oauth2Client});
 
-    let userInDB = await User.findOne({email: user_email}).exec()
 
-    const calendarList = userInDB.calendarList
     // const filteredCalendarList = calendarList.filter(calendarEntry => calendarEntry.accessRole === 'owner')
     
     const eventPromises = calendarList.map(calendarEntry => {
@@ -225,7 +236,8 @@ async function listEvents(auth_tokens, user_email) {
         }).then(response => {
           return response.data.items.map(event => ({
               ...event,
-              calendarName: calendarName // Attach the calendar name to each event
+              calendarName: calendarName, // Attach the calendar name to each event
+              calendarID: calendarId
           }));
       }).catch(error => {
             console.error(`Error fetching events for calendar ${calendarId}:`, error);
@@ -277,7 +289,9 @@ async function listEvents(auth_tokens, user_email) {
           return new EventObject(
               event.id,
               user_email,
+              username,
               event.calendarName, 
+              event.calendarID,
               event.summary,
               start.split('T')[0],
               event.description || '',
