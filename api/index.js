@@ -106,7 +106,7 @@ async function checkBurpees(email, n) {
   let userInDB = await User.findOne({email: email}).exec()
   let burpCount = userInDB.burpee_count
   let burpDateString = userInDB.burpee_date
-  const burpDate = new Date(burpDateString)
+  let burpDate = new Date(burpDateString)
 
   const d_string = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
   const d = new Date(d_string)
