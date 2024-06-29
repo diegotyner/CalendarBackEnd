@@ -46,6 +46,14 @@ const userSchema = new Schema({
         type: String,
         required: false // Optional since refresh token might not be immediately available
     },
+    burpee_count: {
+        type: Number,
+        required: true
+    },
+    burpee_date: {
+        type: String,
+        required: true
+    },
     calendarList: [CalendarEntrySchema]
 });
 const User = mongoose.model('User', userSchema)

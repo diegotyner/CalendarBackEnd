@@ -25,7 +25,7 @@ mongoose.connect(dbURI)
 
 app.use(cors({
   origin: [process.env.ALLOWED_ORIGIN1, process.env.ALLOWED_ORIGIN2, process.env.ALLOWED_ORIGIN3], // Combine allowed origins into a single array
-  methods: ["GET"],
+  methods: ["GET", "POST"],
   credentials: true
 }));
 
@@ -35,6 +35,8 @@ app.use(session({
   resave: false,
   saveUninitialized: true,
 }));
+
+app.use(express.json());
 
 
 const oauth2Client = new google.auth.OAuth2(
@@ -51,9 +53,11 @@ app.get("/", (req, res) => { res.send("Express on Vercel")});
 
 
 class userCalendar {
-  constructor(username, calendarList) {
+  constructor(username, email, calendarList, burpee_count) {
     this.username = username;
+    this.email = email;
     this.calendarList = calendarList;
+    this.burpee_count = burpee_count;
   }
 }
 app.get('/home', async (req, res) => {
@@ -68,12 +72,12 @@ app.get('/home', async (req, res) => {
   }
 
   let combinedMap = new Map();
-  const userCalendarList = []
+  const userCalendarList = [];
   for (const userObject of userList) {
-    const tokens = userObject.refresh_token 
+    const tokens = userObject.refresh_token;
     console.log(tokens)
     if (!tokens) {
-      continue
+      continue;
     }
 
     try {
@@ -84,10 +88,11 @@ app.get('/home', async (req, res) => {
         }
         combinedMap.get(key).push(...value);
       });
-      userCalendarList.push(new userCalendar(userObject.name, userObject.calendarList))
     } catch (error) {
       console.error('Error fetching events for token:', tokens, error);
     }
+    const burpee_count = await checkBurpees(userObject.email, 0);
+    userCalendarList.push(new userCalendar(userObject.name, userObject.email, userObject.calendarList, burpee_count));
   }
   const combinedObject = Object.fromEntries(combinedMap);
   console.timeEnd('Whole Home')
@@ -96,6 +101,42 @@ app.get('/home', async (req, res) => {
 });
 
 
+async function checkBurpees(email, n) {
+  console.log(email, n)
+  let userInDB = await User.findOne({email: email}).exec()
+  let burpCount = userInDB.burpee_count
+  let burpDateString = userInDB.burpee_date
+  let burpDate = new Date(burpDateString)
+
+  const d_string = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+  const d = new Date(d_string)
+  d.setHours(0, 0, 0, 0);
+  if (d > burpDate) {
+    burpCount += 20
+    burpDate = d.toDateString
+    userInDB.burpee_date = burpDate
+  }
+
+  burpCount += n
+  userInDB.burpee_count = burpCount
+  userInDB.save();
+  console.log(burpCount)
+  return burpCount;
+};
+
+
+app.post('/home', async (req, res) => {
+  console.log('Body:', req.body);
+  const { email, n } = req.body;
+  try {
+    const burpCount = await checkBurpees(email, n);
+    console.log({ message: 'Counter updated', burpee_count: burpCount});
+    res.status(200).json({ message: 'Counter updated', burpee_count: burpCount});
+  } catch (error) {
+    console.error('Error posting updated burpees for:', email, error)
+    return res.status(400).json({ message: 'Invalid email or count' });
+  }
+});
 
 
 // Route to start OAuth2 flow
@@ -140,10 +181,14 @@ app.get('/auth/google/callback', async (req, res) => {
       profile = await oauth2.userinfo.get({ auth: oauth2Client }).then(response => response.data);
       let userInDB = await User.findOne({email: profile.email}).exec()
       if (!userInDB) {
+        const d_string = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+        const d = new Date(d_string);
         const user = new User({
           name: profile.name,
           email: profile.email,
-          refresh_token: tokens.refresh_token
+          refresh_token: tokens.refresh_token,
+          burpee_count: 20,
+          burpee_date: d.toDateString()
         });
 
         const calendar = google.calendar({version: 'v3', auth: oauth2Client});
@@ -253,7 +298,7 @@ async function listEvents(auth_tokens, user_email, username, calendarList) {
           let start = event.start.dateTime || event.start.date;
           let end = event.end.dateTime || event.end.date;
 
-          // In stupid UTC time and needs to process
+          // In stupid UTC time and needs to process (only stupid because only one calendar affected (not really stupid honestly))
           if (start.length > 18 && start[19] == 'Z') {
             const start_date_object = new Date(start);
             const start_pacific_timeString = new Intl.DateTimeFormat('en-US', {
