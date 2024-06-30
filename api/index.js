@@ -111,9 +111,11 @@ async function checkBurpees(email, n) {
   const d_string = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
   const d = new Date(d_string)
   d.setHours(0, 0, 0, 0);
-  if (d > burpDate) {
+  // if (d > burpDate) {
+  if (true) {
+    console.log("It's a wonderful new day to do burpees!")
     burpCount += 20
-    burpDate = d.toDateString
+    burpDate = d.toDateString()
     userInDB.burpee_date = burpDate
   }
 
@@ -130,7 +132,6 @@ app.post('/home', async (req, res) => {
   const { email, n } = req.body;
   try {
     const burpCount = await checkBurpees(email, n);
-    console.log({ message: 'Counter updated', burpee_count: burpCount});
     res.status(200).json({ message: 'Counter updated', burpee_count: burpCount});
   } catch (error) {
     console.error('Error posting updated burpees for:', email, error)
