@@ -111,8 +111,7 @@ async function checkBurpees(email, n) {
   const d_string = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
   const d = new Date(d_string)
   d.setHours(0, 0, 0, 0);
-  // if (d > burpDate) {
-  if (true) {
+  if (d > burpDate) {
     console.log("It's a wonderful new day to do burpees!")
     burpCount += 20
     burpDate = d.toDateString()
